@@ -1,15 +1,13 @@
-from typing import Any, Self
-from fastapi import FastAPI, HTTPException
-import uvicorn
+from fastapi import HTTPException
 from fastapi.routing import APIRouter
 from sqlalchemy import Column, Boolean, String
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-import settings
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import re
 from pydantic import BaseModel, EmailStr, validator
+
 
 ##################################
 
@@ -112,6 +110,3 @@ async def _create_new_user(body: UserCreate) -> ShowUser:
 async def create_user(body: UserCreate) -> ShowUser:
      return await _create_new_user(body)
 
-app = FastAPI(title="User Management API")
-
-app.include_router(user_router)
