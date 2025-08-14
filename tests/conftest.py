@@ -1,78 +1,60 @@
-import sys
-from pathlib import Path
-
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(BASE_DIR))
-
-from typing import Generator, Any
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from starlette.testclient import TestClient
-from app.config import settings
-from app.main import app
-import os
 import asyncio
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+from app.config import settings
+from main import app
 from app.db.session import get_db
-import asyncpg
-
-test_engine = create_async_engine(settings.TEST_DATABASE_URL, future=True, echo=True)
-
-test_async_session = sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
-
-CLEAN_TABLES = [
-    'users',
-]
+from app.models.user import base
 
 
-@pytest.fixture(scope='session')
+db_lock = asyncio.Lock()
+
+@pytest.fixture(scope="session")
 def event_loop():
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    """Создаем новый event loop для каждой сессии"""
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
-
-
-@pytest.fixture(scope='session')
-async def async_session_test():
-    engine = create_async_engine(settings.TEST_DATABASE_URL, future=True, echo=True)
-    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    yield async_session
-
-
-@pytest.fixture(scope='function', autouse=True)
-async def clean_tables(async_session_test):
-    async with async_session_test() as session:
-        async with session.begin():
-            for table_for_cleaning in CLEAN_TABLES:
-                await session.execute(f"""TRUNCATE TABLE {table_for_cleaning};""")
-
-
-@pytest.fixture(scope="function")
-async def client() -> Generator[TestClient, Any, None]:
-    async def _get_test_db():
-        try:
-            yield test_async_session()
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = _get_test_db()
-    with TestClient(app) as client:
-        yield client
-
-
-@pytest.fixture(scope='session')
-async def asyncpg_pool():
-    pool = await asyncpg.create_pool("".join(settings.TEST_DATABASE_URL.split("+asyncpg")))
-    yield pool
-    pool.close()
+@pytest.fixture(scope="session", autouse=True)
+async def setup_db():
+    """Инициализация тестовой БД"""
+    engine = create_async_engine(settings.TEST_DATABASE_URL)
+    async with engine.begin() as conn:
+        await conn.run_sync(base.metadata.drop_all)
+        await conn.run_sync(base.metadata.create_all)
+    await engine.dispose()
 
 @pytest.fixture
-async def get_user_from_database(asyncpg_pool):
+async def db_session():
+    """Изолированная сессия для каждого теста"""
+    engine = create_async_engine(settings.TEST_DATABASE_URL)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async def get_user_from_database_by_uuid(user_id: str):
-        async with asyncpg_pool.acquire() as connection:
-            return await connection.fetch("""SELECT * FROM users WHERE user_id = $1;""", user_id)
+    async with async_session() as session:
+        async with session.begin():
+            yield session
+            await session.rollback()  # Явный откат изменений
 
-    return get_user_from_database_by_uuid
+    await engine.dispose()
+
+@pytest.fixture(autouse=True)
+async def clean_tables(db_session):
+    """Полная очистка таблиц перед каждым тестом"""
+    async with db_lock:  # Блокировка для избежания race condition
+        for table in reversed(base.metadata.sorted_tables):
+            await db_session.execute(table.delete())
+        await db_session.commit()
+
+@pytest.fixture
+def client(db_session):
+    """Тестовый клиент с изолированным подключением"""
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()

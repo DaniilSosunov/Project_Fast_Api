@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from pydantic import BaseModel, validator, EmailStr
+from pydantic import BaseModel, field_validator, EmailStr, ConfigDict
 
 import uuid
 import re
@@ -12,8 +12,6 @@ class UserBase(BaseModel):
     surname: str
     email: EmailStr
 
-    class Config:
-        from_attributes = True
 
 
 class ShowUser(UserBase):
@@ -23,7 +21,9 @@ class ShowUser(UserBase):
 
 class UserCreate(UserBase):
 
-    @validator("name", "surname")
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("name", "surname")
     def validete_name(cls, value):
         if not LETTER_MATCH_PATTERN.match(value):
             raise HTTPException(
