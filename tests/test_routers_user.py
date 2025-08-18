@@ -1,18 +1,19 @@
+import json
+
 import pytest
 
 
-@pytest.mark.asyncio
 async def test_create_user(client):
-    """Тест создания пользователя с синхронным клиентом"""
-    test_user = {
-        "name": "Test",
-        "surname": "User",
-        "email": "test@example.com"
+    user_data = {
+        "name": "Nikolai",
+        "surname": "Sviridov",
+        "email": "lol@kek.com",
     }
+    resp = client.post("/user/", data=json.dumps(user_data))
+    data_from_resp = resp.json()
+    assert resp.status_code == 200
+    assert data_from_resp["name"] == user_data["name"]
+    assert data_from_resp["surname"] == user_data["surname"]
+    assert data_from_resp["email"] == user_data["email"]
+    assert data_from_resp["is_active"] is True
 
-    # Синхронный вызов через TestClient
-    response = client.post("/user", json=test_user)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["email"] == test_user["email"]
