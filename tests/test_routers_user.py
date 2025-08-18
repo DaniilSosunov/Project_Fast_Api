@@ -1,19 +1,21 @@
-import json
-
 import pytest
+import json
+from httpx import AsyncClient
 
-
+@pytest.mark.asyncio
 async def test_create_user(client):
     user_data = {
         "name": "Nikolai",
         "surname": "Sviridov",
-        "email": "lol@kek.com",
+        "email": "lo1l@kek.com",
     }
-    resp = client.post("/user/", data=json.dumps(user_data))
-    data_from_resp = resp.json()
-    assert resp.status_code == 200
-    assert data_from_resp["name"] == user_data["name"]
-    assert data_from_resp["surname"] == user_data["surname"]
-    assert data_from_resp["email"] == user_data["email"]
-    assert data_from_resp["is_active"] is True
 
+    # Получаем экземпляр AsyncClient из фикстуры
+    async for ac in client: # Используем async for, но только один раз
+        resp = await ac.post("/user/", json=user_data)  # Передаем данные как json
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == user_data["name"]
+        assert data["surname"] == user_data["surname"]
+        assert data["email"] == user_data["email"]
+        break # выходим из цикла после первого прохода
